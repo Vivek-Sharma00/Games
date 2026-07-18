@@ -7,3 +7,4 @@ GamePanel$Bullet.class
 GamePanel$State.class
 SpaceWars.class
 GamePanel$Enemy.class
+GamePanel$Difficulty.class

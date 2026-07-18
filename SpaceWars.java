@@ -27,15 +27,18 @@ public class SpaceWars extends JFrame {
 }
 
 class GamePanel extends JPanel implements ActionListener, KeyListener {
-    // Virtual resolution rules
     private static final int V_WIDTH = 800;
     private static final int V_HEIGHT = 500;
     
     // Game States
-    private enum State { PLAYING, GAME_OVER }
-    private State currentState = State.PLAYING;
+    private enum State { MENU, PLAYING, GAME_OVER }
+    private State currentState = State.MENU;
     
-    // Core Loop & 90 FPS Target Timing
+    // Difficulty Settings
+    private enum Difficulty { EASY, MEDIUM, HARD }
+    private Difficulty selectedDifficulty = Difficulty.MEDIUM;
+    
+    // Core Loop & Timing
     private final Timer gameTimer;
     private long lastTime;
     
@@ -47,9 +50,8 @@ class GamePanel extends JPanel implements ActionListener, KeyListener {
     private double shipY = V_HEIGHT / 2.0;
     private final double shipWidth = 40;
     private final double shipHeight = 25;
-    private final double shipSpeed = 300.0; // Pixels per second
+    private final double shipSpeed = 300.0;
     
-    // Movement inputs
     private boolean moveUp = false;
     private boolean moveDown = false;
     
@@ -58,15 +60,19 @@ class GamePanel extends JPanel implements ActionListener, KeyListener {
     private final double[] starsY = new double[50];
     private final double[] starsSpeed = new double[50];
     
-    // Lists for bullets and enemies
     private final List<Bullet> bullets = new ArrayList<>();
     private final List<Enemy> enemies = new ArrayList<>();
     
-    // Systems Timers & Resources
-    private double ammoTimer = 0.0;
-    private int ammo = 3;
-    private final int MAX_AMMO = 3;
+    // Dynamic Difficulty Tuners
+    private double ammoRechargeTarget = 5.0;
+    private int maxAmmo = 5;
+    private double bombBaseCooldown = 15.0;
+    private double bombMultiplier = 2.0;
+    private double enemySpeedModifier = 1.0;
     
+    // Systems Resources
+    private double ammoTimer = 0.0;
+    private int ammo = 5;
     private double bombTimer = 0.0;
     private int bombCount = 0;
     private int bombsUsed = 0;
@@ -74,12 +80,15 @@ class GamePanel extends JPanel implements ActionListener, KeyListener {
     private double enemySpawnTimer = 0.0;
     private double survivalTime = 0.0;
     
-    // Visual Bomb Flash Animation Tracker
+    // Visual Bomb Flash
     private boolean bombActive = false;
     private double bombRadius = 0.0;
     private final double maxBombRadius = Math.max(V_WIDTH, V_HEIGHT) * 0.9;
     
-    // UI Restart Button Bounds
+    // Interactive UI Clickable Bounds
+    private final Rectangle easyBtn = new Rectangle(V_WIDTH / 2 - 60, 200, 120, 40);
+    private final Rectangle mediumBtn = new Rectangle(V_WIDTH / 2 - 60, 260, 120, 40);
+    private final Rectangle hardBtn = new Rectangle(V_WIDTH / 2 - 60, 320, 120, 40);
     private final Rectangle restartButtonRect = new Rectangle(V_WIDTH / 2 - 60, V_HEIGHT / 2 + 40, 120, 40);
 
     public GamePanel() {
@@ -88,37 +97,71 @@ class GamePanel extends JPanel implements ActionListener, KeyListener {
         setFocusable(true);
         addKeyListener(this);
         
-        // Mouse listener purely for the Game Over restart button click
         addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (currentState == State.GAME_OVER) {
-                    Point p = getVirtualPoint(e.getPoint());
+                Point p = getVirtualPoint(e.getPoint());
+                
+                if (currentState == State.MENU) {
+                    if (easyBtn.contains(p)) {
+                        applyDifficultyAndStart(Difficulty.EASY);
+                    } else if (mediumBtn.contains(p)) {
+                        applyDifficultyAndStart(Difficulty.MEDIUM);
+                    } else if (hardBtn.contains(p)) {
+                        applyDifficultyAndStart(Difficulty.HARD);
+                    }
+                } else if (currentState == State.GAME_OVER) {
                     if (restartButtonRect.contains(p)) {
-                        resetGame();
+                        currentState = State.MENU;
                     }
                 }
             }
         });
         
-        // Initialize starfield positions
         for (int i = 0; i < starsX.length; i++) {
             starsX[i] = Math.random() * V_WIDTH;
             starsY[i] = Math.random() * V_HEIGHT;
-            starsSpeed[i] = 50 + Math.random() * 100; // Background scroll speed range
+            starsSpeed[i] = 50 + Math.random() * 100;
         }
         
-        // Setup 90 FPS target loop (~11ms interval)
         gameTimer = new Timer(11, this);
         lastTime = System.nanoTime();
         gameTimer.start();
+    }
+
+    private void applyDifficultyAndStart(Difficulty diff) {
+        selectedDifficulty = diff;
+        switch (diff) {
+            case EASY:
+                ammoRechargeTarget = 3.0;
+                maxAmmo = 7;
+                bombBaseCooldown = 10.0;
+                bombMultiplier = 2.0;
+                enemySpeedModifier = 0.8;
+                break;
+            case MEDIUM:
+                ammoRechargeTarget = 5.0;
+                maxAmmo = 5;
+                bombBaseCooldown = 15.0;
+                bombMultiplier = 2.0;
+                enemySpeedModifier = 1.0;
+                break;
+            case HARD:
+                ammoRechargeTarget = 6.0;
+                maxAmmo = 3; // Tight ammunition limits
+                bombBaseCooldown = 25.0;
+                bombMultiplier = 3.0; // Dynamic growth penalty: 25 + 3n
+                enemySpeedModifier = 1.4; // 40% speed escalation
+                break;
+        }
+        resetGame();
     }
 
     private void resetGame() {
         score = 0;
         survivalTime = 0.0;
         shipY = V_HEIGHT / 2.0;
-        ammo = 3;
+        ammo = maxAmmo;
         ammoTimer = 0.0;
         bombCount = 0;
         bombsUsed = 0;
@@ -138,8 +181,18 @@ class GamePanel extends JPanel implements ActionListener, KeyListener {
         double dt = (now - lastTime) / 1_000_000_000.0;
         lastTime = now;
         
-        // Cap dt to avoid massive frame jumps during system hitches
         if (dt > 0.1) dt = 0.1; 
+
+        // Parallax stars animate even on menus
+        if (currentState == State.PLAYING || currentState == State.MENU) {
+            for (int i = 0; i < starsX.length; i++) {
+                starsX[i] -= starsSpeed[i] * dt;
+                if (starsX[i] < 0) {
+                    starsX[i] = V_WIDTH;
+                    starsY[i] = Math.random() * V_HEIGHT;
+                }
+            }
+        }
 
         if (currentState == State.PLAYING) {
             updateGame(dt);
@@ -150,38 +203,21 @@ class GamePanel extends JPanel implements ActionListener, KeyListener {
 
     private void updateGame(double dt) {
         survivalTime += dt;
-        score = (int) (survivalTime * 10); // 10 points per second survived
+        score = (int) (survivalTime * 10);
         
-        // 1. Ship Movement Logic (Angular States mapped to vertical clamping)
         if (moveUp && !moveDown) {
-            // Moving up at 45 degrees
             shipY -= shipSpeed * dt;
         } else if (moveDown && !moveUp) {
-            // Moving down at 135 degrees
             shipY += shipSpeed * dt;
         }
         
-        // Clamp bounds: Cannot exit top or bottom screen boundaries
-        if (shipY < 0) {
-            shipY = 0;
-        }
-        if (shipY > V_HEIGHT - shipHeight) {
-            shipY = V_HEIGHT - shipHeight;
-        }
+        if (shipY < 0) shipY = 0;
+        if (shipY > V_HEIGHT - shipHeight) shipY = V_HEIGHT - shipHeight;
         
-        // 2. Parallax Starfield Update
-        for (int i = 0; i < starsX.length; i++) {
-            starsX[i] -= starsSpeed[i] * dt;
-            if (starsX[i] < 0) {
-                starsX[i] = V_WIDTH;
-                starsY[i] = Math.random() * V_HEIGHT;
-            }
-        }
-        
-        // 3. System Timers: Ammo Recharge Rules (Max 3, 5 seconds per charge)
-        if (ammo < MAX_AMMO) {
+        // Ammo Recharge System
+        if (ammo < maxAmmo) {
             ammoTimer += dt;
-            if (ammoTimer >= 5.0) {
+            if (ammoTimer >= ammoRechargeTarget) {
                 ammo++;
                 ammoTimer = 0.0;
             }
@@ -189,9 +225,9 @@ class GamePanel extends JPanel implements ActionListener, KeyListener {
             ammoTimer = 0.0;
         }
         
-        // 4. System Timers: Bomb Cooldown Scaler Formula (20 + 2n)
-        double currentBombCooldownTarget = 20.0 + (2.0 * bombsUsed);
-        if (bombCount == 0) { // Only recharges if player does not currently hold a bomb
+        // Dynamic Bomb Cooldown Calculation: Base + (Multiplier * n)
+        double currentBombCooldownTarget = bombBaseCooldown + (bombMultiplier * bombsUsed);
+        if (bombCount == 0) {
             bombTimer += dt;
             if (bombTimer >= currentBombCooldownTarget) {
                 bombCount = 1;
@@ -199,58 +235,51 @@ class GamePanel extends JPanel implements ActionListener, KeyListener {
             }
         }
         
-        // 5. Bomb VFX Expansion Logic
         if (bombActive) {
-            bombRadius += 1500.0 * dt; // Rapid flash outward expansion speed
+            bombRadius += 1500.0 * dt;
             if (bombRadius >= maxBombRadius) {
                 bombActive = false;
                 bombRadius = 0.0;
             }
         }
         
-        // 6. Spawn Dynamic Enemies
+        // Enemy Spawning
         enemySpawnTimer += dt;
-        double spawnRate = Math.max(0.4, 1.5 - (survivalTime * 0.02)); // Spawns accelerate over time
+        double baseSpawnRate = (selectedDifficulty == Difficulty.HARD) ? 0.8 : 1.5;
+        double spawnRate = Math.max(0.3, baseSpawnRate - (survivalTime * 0.02));
         if (enemySpawnTimer >= spawnRate) {
-            enemies.add(new Enemy(V_WIDTH, Math.random() * (V_HEIGHT - 30)));
+            enemies.add(new Enemy(V_WIDTH, Math.random() * (V_HEIGHT - 30), enemySpeedModifier));
             enemySpawnTimer = 0.0;
         }
         
-        // 7. Process Bullets
+        // Process Bullets
         Iterator<Bullet> bulletIt = bullets.iterator();
         while (bulletIt.hasNext()) {
             Bullet b = bulletIt.next();
             b.x += b.speed * dt;
-            if (b.x > V_WIDTH) {
-                bulletIt.remove();
-            }
+            if (b.x > V_WIDTH) bulletIt.remove();
         }
         
-        // 8. Process Enemies & Collisions
+        // Process Enemies & Collisions
         Iterator<Enemy> enemyIt = enemies.iterator();
         while (enemyIt.hasNext()) {
             Enemy enemy = enemyIt.next();
             enemy.x -= enemy.speed * dt;
             
-            // Player collision check
-            Rectangle shipBounds = new Rectangle((int) 50, (int) shipY, (int) shipWidth, (int) shipHeight);
+            Rectangle shipBounds = new Rectangle(50, (int) shipY, (int) shipWidth, (int) shipHeight);
             Rectangle enemyBounds = new Rectangle((int) enemy.x, (int) enemy.y, (int) enemy.width, (int) enemy.height);
             
             if (shipBounds.intersects(enemyBounds)) {
                 currentState = State.GAME_OVER;
-                if (score > highScore) {
-                    highScore = score;
-                }
+                if (score > highScore) highScore = score;
                 return;
             }
             
-            // Off-screen cleanup
             if (enemy.x + enemy.width < 0) {
                 enemyIt.remove();
                 continue;
             }
             
-            // Bullet vs Enemy Collision (Horizontal line cross check)
             Iterator<Bullet> bIt = bullets.iterator();
             boolean enemyDestroyed = false;
             while (bIt.hasNext()) {
@@ -259,20 +288,17 @@ class GamePanel extends JPanel implements ActionListener, KeyListener {
                 if (bulletBounds.intersects(enemyBounds)) {
                     bIt.remove();
                     enemyDestroyed = true;
-                    score += 50; // Bonus points for clean eliminations
+                    score += 50;
                     break;
                 }
             }
             
-            if (enemyDestroyed) {
-                enemyIt.remove();
-            }
+            if (enemyDestroyed) enemyIt.remove();
         }
     }
 
     private void fireBullet() {
         if (ammo > 0) {
-            // Bullet fires horizontally from the front tip center of the spaceship
             bullets.add(new Bullet(50 + shipWidth, shipY + (shipHeight / 2) - 2));
             ammo--;
         }
@@ -280,179 +306,161 @@ class GamePanel extends JPanel implements ActionListener, KeyListener {
 
     private void triggerBomb() {
         if (bombCount > 0) {
-            enemies.clear(); // 100% Instant tactical clear logic
+            enemies.clear();
             bombActive = true;
             bombRadius = 0.0;
             bombCount--;
             bombsUsed++;
-            bombTimer = 0.0; // Reset timer instance to track the next step scaling duration
+            bombTimer = 0.0;
         }
     }
 
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
-        
         Graphics2D g2d = (Graphics2D) g;
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         
-        // Apply Global Scale Transform to maintain native virtual resolution scaling ratio
         double scaleX = (double) getWidth() / V_WIDTH;
         double scaleY = (double) getHeight() / V_HEIGHT;
         g2d.scale(scaleX, scaleY);
         
-        // Draw Starfield
+        // Stars
         g2d.setColor(Color.WHITE);
         for (int i = 0; i < starsX.length; i++) {
             g2d.fillRect((int) starsX[i], (int) starsY[i], 2, 2);
         }
         
-        // Draw Bullets (Laser lines)
+        if (currentState == State.MENU) {
+            drawMenu(g2d);
+            return;
+        }
+        
+        // Gameplay Rendering Elements
         g2d.setColor(Color.CYAN);
         for (Bullet b : bullets) {
             g2d.fillRect((int) b.x, (int) b.y, (int) b.width, (int) b.height);
         }
         
-        // Draw Enemies
         for (Enemy enemy : enemies) {
             g2d.setColor(enemy.color);
             g2d.fillRect((int) enemy.x, (int) enemy.y, (int) enemy.width, (int) enemy.height);
-            // Wing details
-            g2d.setColor(Color.BLACK);
-            g2d.drawRect((int) enemy.x, (int) enemy.y, (int) enemy.width, (int) enemy.height);
         }
         
-        // Draw Spaceship Player (Vector look)
         g2d.setColor(Color.GREEN);
         int[] xPoints = {50, 50 + (int) shipWidth, 50};
         int[] yPoints = {(int) shipY, (int) shipY + ((int) shipHeight / 2), (int) shipY + (int) shipHeight};
         g2d.fillPolygon(xPoints, yPoints, 3);
         
-        // Draw Expanding Bomb Circle Flash Visual effect
         if (bombActive) {
             g2d.setColor(new Color(255, 255, 255, 180));
-            double centerX = V_WIDTH / 2.0;
-            double centerY = V_HEIGHT / 2.0;
-            Ellipse2D.Double circle = new Ellipse2D.Double(
-                    centerX - bombRadius, 
-                    centerY - bombRadius, 
-                    bombRadius * 2, 
-                    bombRadius * 2
-            );
+            Ellipse2D.Double circle = new Ellipse2D.Double(V_WIDTH / 2.0 - bombRadius, V_HEIGHT / 2.0 - bombRadius, bombRadius * 2, bombRadius * 2);
             g2d.fill(circle);
         }
         
-        // Draw Heads-Up Display (HUD) Info Panel
+        // HUD Setup
         g2d.setColor(Color.WHITE);
         g2d.setFont(new Font("Monospaced", Font.BOLD, 14));
         g2d.drawString("SCORE: " + score, 20, 30);
-        g2d.drawString("HI-SCORE: " + highScore, 160, 30);
-        g2d.drawString("AMMO: " + ammo + "/" + MAX_AMMO + (ammo < MAX_AMMO ? String.format(" (Recharging: %.1fs)", 5.0 - ammoTimer) : ""), 320, 30);
+        g2d.drawString("MODE: " + selectedDifficulty, 160, 30);
+        g2d.drawString("AMMO: " + ammo + "/" + maxAmmo + (ammo < maxAmmo ? String.format(" (%.1fs)", ammoRechargeTarget - ammoTimer) : ""), 320, 30);
         
-        double nextCooldown = 20.0 + (2.0 * bombsUsed);
+        double nextCooldown = bombBaseCooldown + (bombMultiplier * bombsUsed);
         String bombStatus = (bombCount > 0) ? "READY [X]" : String.format("CHARGING: %.1fs / %.1fs", bombTimer, nextCooldown);
         g2d.drawString("BOMB: " + bombStatus, 20, 60);
         
-        // Draw Game Over Screen Matrix Overlay
         if (currentState == State.GAME_OVER) {
-            g2d.setColor(new Color(0, 0, 0, 200));
-            g2d.fillRect(0, 0, V_WIDTH, V_HEIGHT);
-            
-            g2d.setColor(Color.RED);
-            g2d.setFont(new Font("Arial", Font.BOLD, 36));
-            FontMetrics fm = g2d.getFontMetrics();
-            String gameOverText = "GAME OVER";
-            g2d.drawString(gameOverText, (V_WIDTH - fm.stringWidth(gameOverText)) / 2, V_HEIGHT / 2 - 40);
-            
-            g2d.setColor(Color.WHITE);
-            g2d.setFont(new Font("Arial", Font.PLAIN, 18));
-            fm = g2d.getFontMetrics();
-            String scoreText = "Final Score: " + score + " | High Score: " + highScore;
-            g2d.drawString(scoreText, (V_WIDTH - fm.stringWidth(scoreText)) / 2, (int) (V_HEIGHT / 2.0));
-            
-            // Virtual Button drawing
-            g2d.setColor(Color.DARK_GRAY);
-            g2d.fill(restartButtonRect);
-            g2d.setColor(Color.WHITE);
-            g2d.draw(restartButtonRect);
-            
-            g2d.setFont(new Font("Arial", Font.BOLD, 14));
-            fm = g2d.getFontMetrics();
-            String btnText = "RESTART";
-            g2d.drawString(btnText, restartButtonRect.x + (restartButtonRect.width - fm.stringWidth(btnText)) / 2, 
-                           restartButtonRect.y + (restartButtonRect.height + fm.getAscent() - fm.getDescent()) / 2);
+            drawGameOverScreen(g2d);
         }
     }
 
-    // Transform raw display coordinate point to target virtual space rectangle bounds mapping configuration
+    private void drawMenu(Graphics2D g2d) {
+        g2d.setColor(Color.WHITE);
+        g2d.setFont(new Font("Arial", Font.BOLD, 42));
+        FontMetrics fm = g2d.getFontMetrics();
+        g2d.drawString("SPACE WARS", (V_WIDTH - fm.stringWidth("SPACE WARS")) / 2, 120);
+        
+        g2d.setFont(new Font("Arial", Font.PLAIN, 16));
+        fm = g2d.getFontMetrics();
+        g2d.drawString("SELECT DIFFICULTY TO PLAY", (V_WIDTH - fm.stringWidth("SELECT DIFFICULTY TO PLAY")) / 2, 160);
+        
+        drawButton(g2d, easyBtn, "EASY", Color.GREEN);
+        drawButton(g2d, mediumBtn, "MEDIUM", Color.ORANGE);
+        drawButton(g2d, hardBtn, "HARD", Color.RED);
+    }
+
+    private void drawButton(Graphics2D g2d, Rectangle rect, String text, Color textColor) {
+        g2d.setColor(Color.DARK_GRAY);
+        g2d.fill(rect);
+        g2d.setColor(Color.LIGHT_GRAY);
+        g2d.draw(rect);
+        g2d.setColor(textColor);
+        g2d.setFont(new Font("Arial", Font.BOLD, 14));
+        FontMetrics fm = g2d.getFontMetrics();
+        g2d.drawString(text, rect.x + (rect.width - fm.stringWidth(text)) / 2, rect.y + (rect.height + fm.getAscent() - fm.getDescent()) / 2);
+    }
+
+    private void drawGameOverScreen(Graphics2D g2d) {
+        g2d.setColor(new Color(0, 0, 0, 200));
+        g2d.fillRect(0, 0, V_WIDTH, V_HEIGHT);
+        
+        g2d.setColor(Color.RED);
+        g2d.setFont(new Font("Arial", Font.BOLD, 36));
+        FontMetrics fm = g2d.getFontMetrics();
+        g2d.drawString("GAME OVER", (V_WIDTH - fm.stringWidth("GAME OVER")) / 2, V_HEIGHT / 2 - 40);
+        
+        g2d.setColor(Color.WHITE);
+        g2d.setFont(new Font("Arial", Font.PLAIN, 18));
+        fm = g2d.getFontMetrics();
+        String scoreText = "Final Score: " + score + " | High Score: " + highScore;
+        g2d.drawString(scoreText, (V_WIDTH - fm.stringWidth(scoreText)) / 2, (int) (V_HEIGHT / 2.0));
+        
+        drawButton(g2d, restartButtonRect, "MAIN MENU", Color.WHITE);
+    }
+
     private Point getVirtualPoint(Point screenPoint) {
         double scaleX = (double) getWidth() / V_WIDTH;
         double scaleY = (double) getHeight() / V_HEIGHT;
         return new Point((int) (screenPoint.x / scaleX), (int) (screenPoint.y / scaleY));
     }
 
-    // Key input parsing handlers
     @Override
     public void keyPressed(KeyEvent e) {
         int key = e.getKeyCode();
         if (currentState == State.PLAYING) {
-            if (key == KeyEvent.VK_W || key == KeyEvent.VK_UP) {
-                moveUp = true;
-            }
-            if (key == KeyEvent.VK_S || key == KeyEvent.VK_DOWN) {
-                moveDown = true;
-            }
-            if (key == KeyEvent.VK_SPACE) {
-                fireBullet();
-            }
-            if (key == KeyEvent.VK_X) {
-                triggerBomb();
-            }
+            if (key == KeyEvent.VK_W || key == KeyEvent.VK_UP) moveUp = true;
+            if (key == KeyEvent.VK_S || key == KeyEvent.VK_DOWN) moveDown = true;
+            if (key == KeyEvent.VK_SPACE) fireBullet();
+            if (key == KeyEvent.VK_X) triggerBomb();
         }
     }
 
     @Override
     public void keyReleased(KeyEvent e) {
         int key = e.getKeyCode();
-        if (key == KeyEvent.VK_W || key == KeyEvent.VK_UP) {
-            moveUp = false;
-        }
-        if (key == KeyEvent.VK_S || key == KeyEvent.VK_DOWN) {
-            moveDown = false;
-        }
+        if (key == KeyEvent.VK_W || key == KeyEvent.VK_UP) moveUp = false;
+        if (key == KeyEvent.VK_S || key == KeyEvent.VK_DOWN) moveDown = false;
     }
 
     @Override public void keyTyped(KeyEvent e) {}
 
-    // Inner Entities Model Schemas
     private static class Bullet {
         double x, y;
         double width = 15;
         double height = 4;
         double speed = 600.0;
-        
-        Bullet(double x, double y) {
-            this.x = x;
-            this.y = y;
-        }
+        Bullet(double x, double y) { this.x = x; this.y = y; }
     }
 
     private static class Enemy {
-        double x, y;
-        double width = 30;
-        double height = 30;
-        double speed;
+        double x, y, width = 30, height = 30, speed;
         Color color;
-        
-        Enemy(double x, double y) {
+        Enemy(double x, double y, double speedMod) {
             this.x = x;
             this.y = y;
-            this.speed = 150.0 + Math.random() * 150.0; // Random horizontal speed profiles per enemy
-            // Random variant coloring selection
+            this.speed = (150.0 + Math.random() * 150.0) * speedMod;
             int type = (int) (Math.random() * 3);
-            if (type == 0) this.color = Color.RED;
-            else if (type == 1) this.color = Color.ORANGE;
-            else this.color = Color.MAGENTA;
+            this.color = (type == 0) ? Color.RED : (type == 1) ? Color.ORANGE : Color.MAGENTA;
         }
     }
 }
