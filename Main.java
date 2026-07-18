@@ -10,20 +10,16 @@ public class Main extends JPanel {
     private final int TARGET_HEIGHT = 500;
 
     // Image Setting
-    private Image playerImage;
-    private final int IMAGE_WIDTH=800;
-    private final int IMAGE_HEIGHT=40;
+    private Image groundImage;
+    private final int VIRTUAL_GROUND_HEIGHT=40;
 
-    // Position the image right in the center of the 800x500 virtual canvas
-    private int ImageX = 0;
-private int ImageY =  (TARGET_HEIGHT)-(IMAGE_HEIGHT); // Adjusted to place the image at the bottom of the canvas
 
     public Main() {
         this.setPreferredSize(new Dimension(TARGET_WIDTH, TARGET_HEIGHT));
         this.setBackground(Color.WHITE);
         this.setFocusable(true);
 
-        playerImage = new ImageIcon("C:\\Games\\character.jpg").getImage();
+        groundImage = new ImageIcon("C:\\Games\\character.jpg").getImage();
     }
 
     @Override
@@ -42,17 +38,19 @@ private int ImageY =  (TARGET_HEIGHT)-(IMAGE_HEIGHT); // Adjusted to place the i
         // Use the smaller scale factor for BOTH axes to prevent stretching/distortion
         double uniformScale = Math.min(scaleX, scaleY);
 
+        // Draw the image
+        if (groundImage != null) {
+            int physicalGroundHeight =(int) (VIRTUAL_GROUND_HEIGHT * uniformScale); // Scale the image height
+            int ImageY = currentWindowHeight - physicalGroundHeight; // Position the image at the bottom of the target area
+            g2d.drawImage(groundImage, 0, ImageY, currentWindowWidth, physicalGroundHeight, this);
+        }
+
         // Optional: Center the scaled game canvas within the larger window
         int offsetX = (int) ((currentWindowWidth - (TARGET_WIDTH * uniformScale)) / 2);
         int offsetY = (int) ((currentWindowHeight - (TARGET_HEIGHT * uniformScale)) / 2);
         
         g2d.translate(offsetX, offsetY); // Move the drawing space to the center of the window
         g2d.scale(uniformScale, uniformScale); // Scale up perfectly without stretching
-
-        // Draw the image
-        if (playerImage != null) {
-            g2d.drawImage(playerImage, ImageX, ImageY, IMAGE_WIDTH, IMAGE_HEIGHT, this);
-        }
     }
 
     public static void main(String[] args) {
@@ -68,3 +66,4 @@ private int ImageY =  (TARGET_HEIGHT)-(IMAGE_HEIGHT); // Adjusted to place the i
 }
 // create a blank screen ✅Done
 // insert an image ✅Done
+// resize the image to fit the bottom screen as ground ✅Done
