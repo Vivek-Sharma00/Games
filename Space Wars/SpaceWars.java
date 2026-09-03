@@ -10,7 +10,7 @@ public class SpaceWars extends JFrame {
     public SpaceWars() {
         setTitle("Space Wars");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setResizable(false);
+        setResizable(true);
         
         GamePanel gamePanel = new GamePanel();
         add(gamePanel);

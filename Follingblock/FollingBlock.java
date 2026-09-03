@@ -3,15 +3,15 @@ import java.awt.*;
 import java.awt.event.*;
 
 public class FollingBlock extends JPanel implements ActionListener, KeyListener {
- 
+
     // Game Settings
-    private final int WIDTH = 600;
-    private final int HEIGHT = 400;
+    private final int WIDTH = 360;
+    private final int HEIGHT = 650;
 
     // Player State
-    private int playerX = 250;
-    private int playerY = 300;
     private final int PLAYER_SIZE = 30;
+    private int playerX = (WIDTH - PLAYER_SIZE) / 2; // Centers around 165
+    private int playerY = HEIGHT - 80;
 
     // Enemy State
     private int enemyX = 0;
@@ -23,6 +23,7 @@ public class FollingBlock extends JPanel implements ActionListener, KeyListener 
     private Timer timer;
     private boolean isGameOver = false;
     private int score = 0;
+    private final float MAX_SPEED = 15;
 
     public FollingBlock() {
         this.setPreferredSize(new Dimension(WIDTH, HEIGHT));
@@ -49,7 +50,15 @@ public class FollingBlock extends JPanel implements ActionListener, KeyListener 
             if (enemyY > HEIGHT) {
                 resetEnemy();
                 score++;
-                enemySpeed++; // Increase difficulty
+            }
+
+            // Inside actionPerformed when enemy hits bottom:
+            if (enemyY > HEIGHT) {
+                resetEnemy();
+                score++;
+                if (enemySpeed < MAX_SPEED) {
+                    enemySpeed += 0.2f;
+                }
             }
 
             // Check Collision
@@ -84,8 +93,10 @@ public class FollingBlock extends JPanel implements ActionListener, KeyListener 
 
         if (isGameOver) {
             g.setColor(Color.WHITE);
-            g.setFont(new Font("Arial", Font.BOLD, 40));
-            g.drawString("GAME OVER", WIDTH / 2 - 120, HEIGHT / 2);
+            g.setFont(new Font("Arial", Font.BOLD, 36));
+            FontMetrics fm = g.getFontMetrics();
+            int textWidth = fm.stringWidth("GAME OVER");
+            g.drawString("GAME OVER", (WIDTH - textWidth) / 2, HEIGHT / 2);
         }
     }
 
@@ -100,10 +111,10 @@ public class FollingBlock extends JPanel implements ActionListener, KeyListener 
     public void keyPressed(KeyEvent e) {
         int key = e.getKeyCode();
         if (key == KeyEvent.VK_LEFT && playerX > 0) {
-            playerX -= 20;
+            playerX -= 30;
         }
         if (key == KeyEvent.VK_RIGHT && playerX < WIDTH - PLAYER_SIZE) {
-            playerX += 20;
+            playerX += 30;
         }
         // Restart logic
         if (isGameOver && key == KeyEvent.VK_ENTER) {
